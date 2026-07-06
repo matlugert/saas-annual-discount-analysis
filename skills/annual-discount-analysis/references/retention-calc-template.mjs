@@ -12,6 +12,7 @@ const UNSHOWN_SEGMENT_MRR = 0;                    // segment MRR in older cohort
 const TAIL_FACTOR = 0.95;                         // survivor quarterly retention beyond observed steps (sensitivity: 0.92–0.97)
 const TAKE_RATES = [0.10, 0.20, 0.30];
 const CHURNER_SHARES = [0.05, 0.10, 0.20, 1 / 3]; // share of takers who'd truly churn within 12 months
+const W_ANNUAL = 1 / 3;                           // annual-payer share of the table's MRR (0 = table is pure monthly; skips section 10)
 
 // ── DATA: target-segment cohorts (value = new MRR in the acquisition quarter; ret = % retained per quarter) ──
 const cohorts = [
@@ -150,4 +151,55 @@ for (const tf of [0.92, 0.95, 0.97]) {
   const g = tf ** (1 / 3);
   for (let j = 0; j < 12; j++) { v += s; s *= g; }
   console.log(`tail ${tf}: pure-tail V12 = ${v.toFixed(2)} mo`);
+}
+
+// ── 10. Monthly/annual mix sensitivity ──────────────────────────────────────
+// Retention tables usually blend monthly and annual payers: step churn c = wA*cA + (1-wA)*cM.
+// The offer only concerns monthly payers, whose churn cM = (c - wA*cA)/(1-wA) EXCEEDS the blend
+// (annual users are contract-locked and self-selected stickier). Run stickiness scenarios for cA.
+if (W_ANNUAL > 0) {
+  const mixScenarios = [
+    { name: 'annual churns half the blend  ', cA: c => 0.5 * c },
+    { name: 'annual ~80%/yr renewal (5.4%/q)', cA: () => 0.054 },
+    { name: 'extreme: annual never churns   ', cA: () => 0 },
+  ];
+  const v12Mix = (age, months, cAOf) => {
+    let v = 0, s = 1, j = 0;
+    for (let q = 0; j < months; q++) {
+      const c = 1 - stepF(age + q);
+      const cA = Math.min(cAOf(c), c); // annual at least as sticky as the blend
+      const cM = Math.min(Math.max((c - W_ANNUAL * cA) / (1 - W_ANNUAL), 0), 0.9);
+      const gm = (1 - cM) ** (1 / 3);
+      for (let k = 0; k < 3 && j < months; k++, j++) { v += s; s *= gm; }
+    }
+    return { v, S: s };
+  };
+  console.log(`\n=== 10. Monthly/annual mix sensitivity (annual share ${(W_ANNUAL * 100).toFixed(0)}% of table MRR) ===`);
+  console.log(`Monthly-only audience: ${Math.round(fullSegmentMRR * (1 - W_ANNUAL) / 1000)}k MRR (aggregate grid scales by ${(100 * (1 - W_ANNUAL)).toFixed(0)}%)`);
+  for (const sc of mixScenarios) {
+    let mrrM = 0, v12w = 0, s12w = 0;
+    for (const pc of perCohort) {
+      const m = pc.mrr * (1 - W_ANNUAL);
+      const { v, S } = v12Mix(pc.age, 12, sc.cA);
+      mrrM += m; v12w += v * m; s12w += S * m;
+    }
+    const V12m = v12w / mrrM, S12m = s12w / mrrM;
+    const vCh = (V12m - S12m * 12) / (1 - S12m);
+    const phi = (12 - LOCK) / ((12 - LOCK) + (LOCK - vCh));
+    console.log(`${sc.name}: monthly-only V12 ${V12m.toFixed(2)} mo | equiv churn ${((1 - S12m ** 0.25) * 100).toFixed(1)}%/q | delta vs lock ${(LOCK - V12m).toFixed(2)} mo/taker | phi* ${(phi * 100).toFixed(0)}%`);
+  }
+  // Flip threshold: annual share at which monthly-only churn reaches the lock's break-even churn
+  const cBE = 1 - solveBreakEvenMonthly(LOCK) ** 3;
+  const cBlend = 1 - wS12 ** 0.25;
+  for (const cA of [0, 0.05]) {
+    const wFlip = (cBlend - cBE) / (cA - cBE);
+    const txt = wFlip > 0 && wFlip < 1 ? `${(wFlip * 100).toFixed(0)}%` : 'impossible (blend already above break-even)';
+    console.log(`flip: annual share needed for monthly-only churn >= break-even ${(cBE * 100).toFixed(1)}%/q (annual churn ${(cA * 100).toFixed(0)}%/q): ${txt}`);
+  }
+  // Sweet spot shift under the central scenario ("annual churns half the blend")
+  console.log('Sweet spot under mix (annual churns half): monthly-only V12 by age vs each lock');
+  for (let a = 0; a <= 6; a++) {
+    const { v } = v12Mix(a, 12, c => 0.5 * c);
+    console.log(`age ${a}: V12 ${v.toFixed(2)} | ` + DISCOUNTS.map(d => (12 * (1 - d) - v > 0 ? '+' : '') + (12 * (1 - d) - v).toFixed(2) + ` @-${d * 100}%`).join(' | '));
+  }
 }

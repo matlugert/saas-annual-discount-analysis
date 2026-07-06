@@ -45,6 +45,7 @@ Copy [references/retention-calc-template.mjs](references/retention-calc-template
 6. **Aggregate grid** — take-rate × true-churner-share, in currency/yr on the actual segment MRR.
 7. **Sweet spot by cohort age** — V12(age) for ages 0..N vs each lock → age cut-offs. Next-quarter churn is NOT the eligibility test: the lock covers 12 months and churn decays fast (an age-1 cohort can churn 23% next quarter yet already lose money at −30%).
 8. **24-month view** — annual renewal ρ scenarios (60/70/80%), discount persisting vs first-year-only.
+9. **Monthly/annual mix sensitivity** — if the table blends annual payers (share wA), the monthly-only audience churns harder than the blend: per step, cM = (c − wA·cA)/(1−wA). Run stickiness scenarios for cA (half the blend / ~80% renewal / never churns) plus the flip threshold for wA. Typical result: the aggregate shrinks by (1−wA), per-taker loss narrows but survives, and the sweet-spot age windows widen ~1 quarter; a blanket verdict rarely flips below ~50% annual share.
 
 ## Step 3 — Adversarial check before delivering
 
